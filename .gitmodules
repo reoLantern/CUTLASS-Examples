@@ -1,3 +1,3 @@
 [submodule "cutlass"]
 	path = cutlass
-	url = https://github.com/NVIDIA/cutlass.git
+	url = https://github.com/reoLantern/cutlass.git
