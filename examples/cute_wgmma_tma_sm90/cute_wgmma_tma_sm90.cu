@@ -138,9 +138,9 @@ __global__ static void tma_copy_once(
 // 3) Host 端主函数
 int main(int argc, char **argv)
 {
-    int M = 512;
-    int N = 256;
-    int K = 1024;
+    int M = 64;
+    int N = 64;
+    int K = 64;
 
     using TA = cute::half_t;
 
@@ -161,34 +161,19 @@ int main(int argc, char **argv)
 
     {
         // print some info
-        // Tensor host_mA = make_tensor(h_A.data(), make_shape(M, K), dA);
-        // int rows = int(size<0>(host_mA)); // M
-        // int cols = int(size<1>(host_mA)); // K
-        // printf("HOST: Printing global tensor mA (shape %d x %d):\n", rows, cols);
-        // half_t *pData = host_mA.data();
-        // // 遍历 mA 的每个元素。这里调用 mA(i,j) 与通过 layout 计算索引是等价的
-        // auto mA_layout = host_mA.tensor().layout();
-        // print_layout(mA_layout);
-        // for (int i = 0; i < rows; ++i)
-        // {
-        //     for (int j = 0; j < cols; ++j)
-        //     {
-        //         int idx = mA_layout(make_coord(i, j));
-        //         float value = float(pData[idx]);
-        //         printf("%6.1f ", value);
-        //     }
-        //     printf("\n");
-        // }
+        Tensor host_mA = make_tensor(h_A.data(), make_shape(M, K), dA);
+        custom_print_func("HOST: host_mA\n", print_data<decltype(layout(host_mA)), TA>,
+                          layout(host_mA), h_A.data());
     }
 
-    auto bM = Int<128>{};
-    auto bN = Int<128>{};
-    auto bK = Int<64>{};
+    auto bM = Int<64>{};
+    auto bN = Int<16>{};
+    auto bK = Int<32>{};
     auto cta_tiler = make_shape(bM, bN, bK); // (BLK_M, BLK_N, BLK_K)
     auto bP = Int<1>{};                      // Pipeline
 
-    std::cout << "My test: M, N, K, bM, bN, bK, bP = " << M << "," << N << "," << K << "," << bM << "," << bN << ","
-              << bK << "," << bP << std::endl;
+    std::cout << "My test: M,N,K, bM,bN,bK, bP = " << M << "," << N << "," << K << ", " << bM << "," << bN << "," << bK
+              << ", " << bP << std::endl;
 
     // Define the smem layouts (static)
 
@@ -204,8 +189,11 @@ int main(int argc, char **argv)
     //                    across the second mode first, the first mode second, and the third mode last.
     // @pre rank(@a block) <= rank(@a trg_shape)
     // @post compatible(@a trg_shape, shape(@a result))
+
     // auto sA = tile_to_shape(GMMA::Layout_MN_INTER_Atom<cute::half_t>{}, make_shape(bM, bK, bP));
-    auto sA = tile_to_shape(GMMA::Layout_MN_INTER_Atom<cute::half_t>{}, make_shape(bM, bK, bP));
+    // auto sA = tile_to_shape(GMMA::Layout_MN_SW32_Atom<cute::half_t>{}, make_shape(bM, bK, bP));
+    // auto sA = tile_to_shape(GMMA::Layout_MN_SW64_Atom<cute::half_t>{}, make_shape(bM, bK, bP));
+    auto sA = tile_to_shape(GMMA::Layout_MN_SW128_Atom<cute::half_t>{}, make_shape(bM, bK, bP));
     printf("HOST: sA = ");
     print(layout(sA));
     print("\n");
@@ -214,9 +202,7 @@ int main(int argc, char **argv)
     // Define the TMAs
     // Create Global memory tensors for TMA inspection
     Tensor mA = make_tensor(d_A.data().get(), make_shape(M, K), dA);
-    printf("HOST: mA = ");
-    print(layout(mA));
-    print("\n");
+    // mA cannot be printed, since its data is on device
 
     // Create TMA Atoms with the desired copy operation on the source and destination
     Copy_Atom tmaA = make_tma_atom(SM90_TMA_LOAD{}, mA, sA(_, _, 0), make_shape(bM, bK));
@@ -249,10 +235,11 @@ int main(int argc, char **argv)
     // thrust::copy(d_Out.begin(), d_Out.end(), h_out.begin());
     thrust::host_vector<TA> cute_result = d_Out;
 
-    Tensor tensor_out = make_tensor(cute_result.data(), make_shape(M, K), dA);
-    printf("HOST: tensor_out = ");
-    print(layout(tensor_out));
-    print("\n");
+    // shared memory 中地址线性增加，为了查看 shared memory 中数据，将其视为行优先的 tensor
+    // tensor 的一行（列数）匹配物理 bank，保证输出的一列对应物理带宽
+    int out_col = 128 / sizeof(TA);    // eg. TA = FP16, 64 * FP16 = 128 Bytes
+    Tensor tensor_out = make_tensor(cute_result.data(), make_shape(bM * bK * bP / out_col, out_col), make_stride(out_col, Int<1>{}));
+    printf("HOST: tensor_out = \n");
     print_data(layout(tensor_out), tensor_out.data());
 
     // // 打印前 10 个元素

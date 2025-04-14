@@ -10,6 +10,7 @@ SWIZZLE_NUM_MASK_BITS=0   # B
 SWIZZLE_NUM_BASE=4        # M
 SWIZZLE_NUM_SHIFT=3       # S
 LATEX_FILE_PATH="shared_memory_bank_ids.tex"
+MODE="bank+address"
 
 # 如果传递了参数，覆盖默认值
 while [[ $# -gt 0 ]]; do
@@ -50,6 +51,10 @@ while [[ $# -gt 0 ]]; do
             LATEX_FILE_PATH="$2"
             shift 2
             ;;
+        --mode)
+            MODE="$2"
+            shift 2
+            ;;
         --help)
             echo "Usage: $0 [options]"
             echo "  --m=<int>                         Matrix on shared memory M dimension"
@@ -81,6 +86,7 @@ echo "swizzle_num_mask_bits: $SWIZZLE_NUM_MASK_BITS"
 echo "swizzle_num_base: $SWIZZLE_NUM_BASE"
 echo "swizzle_num_shift: $SWIZZLE_NUM_SHIFT"
 echo "latex_file_path: $LATEX_FILE_PATH"
+echo "mode: $MODE"
 
 # 运行命令
 ./cute_swizzle_preview \
@@ -88,4 +94,5 @@ echo "latex_file_path: $LATEX_FILE_PATH"
     --element_size=$ELEMENT_SIZE --swizzle_num_mask_bits=$SWIZZLE_NUM_MASK_BITS \
     --swizzle_num_base=$SWIZZLE_NUM_BASE --swizzle_num_shift=$SWIZZLE_NUM_SHIFT \
     --latex_file_path=$LATEX_FILE_PATH \
-    && latexmk -pdf ./$LATEX_FILE_PATH
+    --mode=$MODE \
+    && latexmk -pdf -shell-escape ./$LATEX_FILE_PATH  # you can replace -pdf with -lualatex to use lualatex

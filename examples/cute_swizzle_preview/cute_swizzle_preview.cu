@@ -50,14 +50,33 @@ private:
     int m_msk_sft = m_num_shft;
 };
 
+// 打印函数，mode 参数有三个可选值：
+//  "bank"          ：打印 bank id
+//  "address"       ：打印 shared memory 中的地址编号（单位为元素）
+//  "bank+address"  ：每个单元格打印 bank,addr
 template <class LayoutA, class TikzColorFn = cute::TikzColor_BWx8>
-void print_layout_shared_memory_bank_id_latex(
+void print_layout_shared_memory_latex(
     LayoutA const& layout_a, // (m,n) -> idx
     Swizzle const& swizzle, size_t element_size, std::ofstream& file,
+    const std::string& mode,
     TikzColorFn color = {}) // lambda(idx) -> tikz color string
 {
     CUTE_STATIC_ASSERT_V(cute::rank(layout_a) <= cute::Int<2>{});
     auto layout = cute::append<2>(layout_a, cute::Layout<cute::_1, cute::_0>{});
+
+    std::string mode_comment;
+    if (mode == "address")
+    {
+        mode_comment = "Each node represents shared memory address (element index).";
+    }
+    else if (mode == "bank+address")
+    {
+        mode_comment = "Each node shows [bank, address]: shared memory bank id and address index.";
+    }
+    else // 默认或 mode=="bank"
+    {
+        mode_comment = "Each node represents shared memory bank id.";
+    }
 
     // Header
     file << "\\documentclass[convert]{standalone}\n"
@@ -73,8 +92,27 @@ void print_layout_shared_memory_bank_id_latex(
             int idx = layout(i, j);
             int swizzled_idx = swizzle(idx);
             int bank_id = (swizzled_idx * element_size / 4) % 32;
-            file << "\\node[fill=" << color(bank_id) << "] at (" << i << ","
-                 << j << ") {" << bank_id << "};\n";
+            if (mode == "address")
+            {
+                // 模式 address: 打印地址编号
+                file << "\\node[fill=" << color(bank_id) << "] at (" << i << "," << j << ") {" << swizzled_idx << "};\n";
+            }
+            else if (mode == "bank+address")
+            {
+                // 模式 bank+address: 同时打印 bank 和地址编号
+                // file << "\\node[fill=" << color(bank_id) << "] at (" << i << "," << j
+                //      << ") {\\footnotesize \\shortstack{" << bank_id 
+                //      << " \\\\ " << swizzled_idx << "}};\n";
+                file << "\\node[fill=" << color(bank_id)
+                    << ", align=center, text width=0.8cm, font=\\tiny, inner sep=1pt] at ("
+                    << i << "," << j << ") {bank " << bank_id << " \\\\ " << swizzled_idx << "};\n";
+            }
+            else
+            {
+                // 默认模式 bank: 打印 bank id
+                file << "\\node[fill=" << color(bank_id) << "] at (" << i << "," << j << ") {" 
+                     << bank_id << "};\n";
+            }
         }
     }
     // Grid
@@ -118,6 +156,7 @@ std::ostream& print_usage(std::ostream& out)
         << "  --swizzle_num_mask_bits=<int>     Number of swizzle mask bits\n"
         << "  --swizzle_num_base=<int>          Number of swizzle base bits\n"
         << "  --swizzle_num_shift=<int>         Number of swizzle shift bits\n"
+        << "  --mode=<string>                  \"bank\", \"address\", or \"bank+address\"\n"
         << "  --latex_file_path=<string>        LaTeX file path\n";
 
     out << "\nExamples:\n\n"
@@ -125,6 +164,7 @@ std::ostream& print_usage(std::ostream& out)
         << " --m=32 --n=64 --stride_m=64 --stride_n=1 --element_size=4 "
            "--swizzle_num_mask_bits=5 --swizzle_num_base=0 "
            "--swizzle_num_shift=6 "
+           "--mode=bank "
            "--latex_file_path=shared_memory_bank_ids.tex\n";
 
     return out;
@@ -142,6 +182,7 @@ int main(int argc, const char** argv)
     int swizzle_num_base{0};
     int swizzle_num_shift{static_cast<int>(std::log2(n))};
     std::string latex_file_path{"shared_memory_bank_ids.tex"};
+    std::string mode{"bank"};  // 默认模式为 bank id
 
     cutlass::CommandLine cmd(argc, argv);
 
@@ -160,6 +201,7 @@ int main(int argc, const char** argv)
     cmd.get_cmd_line_argument("swizzle_num_base", swizzle_num_base);
     cmd.get_cmd_line_argument("swizzle_num_shift", swizzle_num_shift);
     cmd.get_cmd_line_argument("latex_file_path", latex_file_path);
+    cmd.get_cmd_line_argument("mode", mode);
 
     // Print the configurations.
     std::cout << "m: " << m << std::endl;
@@ -171,6 +213,7 @@ int main(int argc, const char** argv)
               << std::endl;
     std::cout << "swizzle_num_base: " << swizzle_num_base << std::endl;
     std::cout << "swizzle_num_shift: " << swizzle_num_shift << std::endl;
+    std::cout << "mode: " << mode << std::endl;
     std::cout << "latex_file_path: " << latex_file_path << std::endl;
 
     auto shape{cute::make_shape(m, n)};
@@ -182,8 +225,8 @@ int main(int argc, const char** argv)
     std::ofstream outfile(latex_file_path);
     if (outfile.is_open())
     {
-        print_layout_shared_memory_bank_id_latex(layout, swizzle, element_size,
-                                                 outfile);
+        print_layout_shared_memory_latex(layout, swizzle, element_size,
+                                                 outfile, mode);
         outfile.close();
     }
     else
